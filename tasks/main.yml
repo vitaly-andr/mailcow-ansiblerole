@@ -1,19 +1,19 @@
 ---
 
 - name: Install required apt packages
-  become: yes
+  become: true
   apt:
     name: git
     state: present
 
 - name: Check if mailcow installation directory exists
-  become: yes
+  become: true
   stat:
     path: "{{ mailcow__install_path }}"
   register: mailcow_installed
 
 - name: Clone mailcow git repo
-  become: yes
+  become: true
   git:
     repo: "{{ mailcow__git_repo }}"
     version: "{{ mailcow__git_version }}"
@@ -37,32 +37,105 @@
 
 - name: Template settings for mailcow.conf
   import_tasks: mailcowconf.yml
+  when: mailcow__update_config | default(false)
 
 - name: Configure Rspamd
   import_tasks: rspamd.yml
+  when: mailcow__update_config | default(false)
 
 - name: Template settings for Nginx
   import_tasks: nginx.yml
+  when: mailcow__update_config | default(false)
 
 - name: Copy vars.local.inc.php
-  become: yes
+  become: true
   template:
     src: vars.local.inc.php.j2
     dest: "{{ mailcow__install_path }}/data/web/inc/vars.local.inc.php"
+  when: mailcow__update_config | default(false)
+
+- name: Stop and remove existing mailcow containers
+  become: true
+  shell: |
+    cd {{ mailcow__install_path }}
+    {{ mailcow__compose_command }} --project-name {{ mailcow__docker_compose_project_name }} down --remove-orphans || true
+    docker network rm {{ mailcow__docker_compose_project_name }}_mailcow-network || true
+  ignore_errors: true
+  when: 
+    - mailcow_installed.stat.exists
+    - mailcow__force_restart | default(false)
+
+- name: Check for corrupted MySQL volume
+  become: true
+  shell: |
+    if docker volume ls | grep -q "{{ mailcow__docker_compose_project_name }}_mysql-vol-1"; then
+      # Check if MySQL volume has InnoDB files but missing system tables (corrupted state)
+      if docker run --rm -v {{ mailcow__docker_compose_project_name }}_mysql-vol-1:/var/lib/mysql alpine:latest \
+         sh -c "test -f /var/lib/mysql/ibdata1 && ! test -d /var/lib/mysql/mysql"; then
+        echo "corrupted"
+      else
+        echo "ok"
+      fi
+    else
+      echo "missing"
+    fi
+  register: mysql_volume_status
+  ignore_errors: true
+  when: mailcow_installed.stat.exists
+
+- name: Log MySQL volume status
+  debug:
+    msg: "MySQL volume status: {{ mysql_volume_status.stdout | default('unknown') }}"
+  when: mailcow_installed.stat.exists
+
+- name: Remove corrupted MySQL volume
+  become: true
+  shell: |
+    echo "Removing corrupted MySQL volume to allow fresh initialization..."
+    docker volume rm {{ mailcow__docker_compose_project_name }}_mysql-vol-1 || true
+  ignore_errors: true
+  when: 
+    - mailcow_installed.stat.exists
+    - mysql_volume_status.stdout == "corrupted"
 
 - name: Check if mailcow containers are running
-  become: yes
+  become: true
   community.docker.docker_container_info:
     name: "{{ mailcow__docker_compose_project_name }}-nginx-mailcow-1"
   register: mailcow_running
 
 - name: Start mailcow container stack
-  become: yes
+  become: true
   shell: |
     {{ mailcow__compose_command }} --project-name {{ mailcow__docker_compose_project_name }} up -d
   args:
     chdir: "{{ mailcow__install_path }}"
   when: not mailcow_running.exists
+
+- name: Wait for MailCow services to be ready
+  become: true
+  wait_for:
+    port: 443
+    host: "{{ ansible_default_ipv4.address }}"
+    delay: 30
+    timeout: 300
+  when: not mailcow_running.exists
+
+- name: Set MailCow admin password
+  become: true
+  shell: |
+    cd {{ mailcow__install_path }}
+    source mailcow.conf
+    # Generate password hash using PHP
+    PASSWORD_HASH=$(docker compose exec -T php-fpm-mailcow php -r "echo password_hash('{{ mailcow_admin_password }}', PASSWORD_DEFAULT);")
+    # Update admin password in database
+    docker compose exec -T mysql-mailcow mysql -u root -p${DBROOT} mailcow -e "UPDATE admin SET password = '$PASSWORD_HASH' WHERE username = 'admin';"
+    echo "Admin password updated successfully"
+  ignore_errors: true
+  tags: 
+    - mailcow
+    - admin_password
+  when: mailcow__update_admin_password | default(false)
 
 - name: Update mailcow
   include_tasks: update.yml

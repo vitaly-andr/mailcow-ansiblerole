@@ -17,11 +17,26 @@ mailcow__docker_compose_project_name: mailcowdockerized
 # WARNING: Only lumen is loaded locally. Enabling any other theme, will download external sources.
 mailcow__theme: lumen
 
-mailcow__install_updates: yes
+mailcow__install_updates: true
 
-mailcow__redirect_http_to_https: no
+mailcow__redirect_http_to_https: false
+
+# MailCow admin password (should be set via environment variable)
+mailcow_admin_password: "{{ mailcow_admin_password | default('moohoo123') }}"
 
 mailcow__rspamd_clamd_servers: clamd:3310
 
 # Change this to "docker-compose" if you use the standalone version of compose
 mailcow__compose_command: docker compose
+
+# Force restart of MailCow containers (default: false)
+# Set to true only when you need to restart containers during deployment
+mailcow__force_restart: false
+
+# Update admin password (default: false)
+# Set to true only when you need to change admin password
+mailcow__update_admin_password: false
+
+# Update MailCow configuration (default: false)
+# Set to true only when you need to update config files
+mailcow__update_config: false
