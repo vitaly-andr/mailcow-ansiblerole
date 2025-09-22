@@ -61,7 +61,7 @@
     {{ mailcow__compose_command }} --project-name {{ mailcow__docker_compose_project_name }} down --remove-orphans || true
     docker network rm {{ mailcow__docker_compose_project_name }}_mailcow-network || true
   ignore_errors: true
-  when: 
+  when:
     - mailcow_installed.stat.exists
     - mailcow__force_restart | default(false)
 
@@ -88,15 +88,39 @@
     msg: "MySQL volume status: {{ mysql_volume_status.stdout | default('unknown') }}"
   when: mailcow_installed.stat.exists
 
+- name: Warning about corrupted MySQL volume
+  fail:
+    msg: |
+      WARNING: Corrupted MySQL volume detected!
+
+      The MySQL volume '{{ mailcow__docker_compose_project_name }}_mysql-vol-1' appears to be corrupted.
+      This means it has InnoDB files but is missing MySQL system tables.
+
+      To allow automatic removal and recreation of this volume, set:
+      mailcow__allow_corrupted_volume_removal: true
+
+      DANGER: This will cause COMPLETE DATA LOSS of the corrupted volume!
+      Make sure you have backups before enabling this option.
+
+      Manual recovery options:
+      1. Try to recover data from the corrupted volume
+      2. Restore from backup
+      3. Remove volume manually: docker volume rm {{ mailcow__docker_compose_project_name }}_mysql-vol-1
+  when:
+    - mailcow_installed.stat.exists
+    - mysql_volume_status.stdout == "corrupted"
+    - not (mailcow__allow_corrupted_volume_removal | default(false))
+
 - name: Remove corrupted MySQL volume
   become: true
   shell: |
     echo "Removing corrupted MySQL volume to allow fresh initialization..."
     docker volume rm {{ mailcow__docker_compose_project_name }}_mysql-vol-1 || true
   ignore_errors: true
-  when: 
+  when:
     - mailcow_installed.stat.exists
     - mysql_volume_status.stdout == "corrupted"
+    - mailcow__allow_corrupted_volume_removal | default(false)
 
 - name: Check if mailcow containers are running
   become: true
@@ -132,7 +156,7 @@
     docker compose exec -T mysql-mailcow mysql -u root -p${DBROOT} mailcow -e "UPDATE admin SET password = '$PASSWORD_HASH' WHERE username = 'admin';"
     echo "Admin password updated successfully"
   ignore_errors: true
-  tags: 
+  tags:
     - mailcow
     - admin_password
   when: mailcow__update_admin_password | default(false)

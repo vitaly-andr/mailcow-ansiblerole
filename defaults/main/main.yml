@@ -40,3 +40,8 @@ mailcow__update_admin_password: false
 # Update MailCow configuration (default: false)
 # Set to true only when you need to update config files
 mailcow__update_config: false
+
+# Allow removal of corrupted MySQL volume (default: false)
+# DANGER: Set to true only if you have backups and want to allow automatic removal of corrupted MySQL volumes
+# This will cause complete data loss of the corrupted volume!
+mailcow__allow_corrupted_volume_removal: false
