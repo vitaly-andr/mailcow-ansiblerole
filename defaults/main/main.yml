@@ -1,6 +1,6 @@
 ---
 
-mailcow__hostname: "{{ inventory_hostname }}"
+mailcow__hostname: "{{ mailcow_hostname }}"
 
 mailcow__install_path: "/opt/mailcow-dockerized"
 mailcow__git_repo: 'https://github.com/mailcow/mailcow-dockerized.git'
@@ -34,7 +34,8 @@ mailcow__compose_command: docker compose
 mailcow__force_restart: false
 
 # Update admin password (default: false)
-# Set to true only when you need to change admin password
+# MailCow uses default credentials: admin / moohoo
+# Change password after first login via web interface
 mailcow__update_admin_password: false
 
 # Update MailCow configuration (default: false)

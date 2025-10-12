@@ -23,11 +23,11 @@
     - variable: HTTP_PORT
       value: "{{ mailcow__config_http_port }}"
     - variable: HTTP_BIND
-      value: "{{ (mailcow__config_http_bind | ansible.utils.ipaddr) if mailcow__config_http_bind is not none else '' }}"
+      value: "{{ mailcow__config_http_bind if mailcow__config_http_bind is not none else '' }}"
     - variable: HTTPS_PORT
       value: "{{ mailcow__config_https_port }}"
     - variable: HTTPS_BIND
-      value: "{{ (mailcow__config_https_bind | ansible.utils.ipaddr) if mailcow__config_https_bind is not none else '' }}"
+      value: "{{ mailcow__config_https_bind if mailcow__config_https_bind is not none else '' }}"
     - variable: ACL_ANYONE
       value: "{{ mailcow__config_acl_anyone }}"
     - variable: MAILDIR_GC_TIME

@@ -43,10 +43,6 @@
   import_tasks: rspamd.yml
   when: mailcow__update_config | default(false)
 
-- name: Template settings for Nginx
-  import_tasks: nginx.yml
-  when: mailcow__update_config | default(false)
-
 - name: Copy vars.local.inc.php
   become: true
   template:
@@ -139,30 +135,92 @@
 - name: Wait for MailCow services to be ready
   become: true
   wait_for:
-    port: 443
-    host: "{{ ansible_default_ipv4.address }}"
-    delay: 30
+    port: 8080
+    host: "127.0.0.1"
+    delay: 10
     timeout: 300
   when: not mailcow_running.exists
 
-- name: Set MailCow admin password
-  become: true
-  shell: |
-    cd {{ mailcow__install_path }}
-    source mailcow.conf
-    # Generate password hash using PHP
-    PASSWORD_HASH=$(docker compose exec -T php-fpm-mailcow php -r "echo password_hash('{{ mailcow_admin_password }}', PASSWORD_DEFAULT);")
-    # Update admin password in database
-    docker compose exec -T mysql-mailcow mysql -u root -p${DBROOT} mailcow -e "UPDATE admin SET password = '$PASSWORD_HASH' WHERE username = 'admin';"
-    echo "Admin password updated successfully"
-  ignore_errors: true
+- name: Display MailCow admin credentials
+  debug:
+    msg:
+      - "🎉 MailCow installation completed successfully!"
+      - ""
+      - "📧 MailCow Admin Panel: https://{{ mailcow_hostname }}/admin"
+      - "👤 Default Login: admin"
+      - "🔑 Default Password: moohoo"
+      - ""
+      - "⚠️  IMPORTANT SECURITY NOTICE:"
+      - "   Please change the default password immediately after first login!"
+      - ""
+      - "📋 Required configuration steps:"
+      - "   1. Login to admin panel with default credentials"
+      - "   2. Change admin password: Configuration → Admin → Change Password"
+      - "   3. Add mail domain: Configuration → Mail → Domains → Add domain"
+      - "      - Domain: {{ portal_domain }} (e.g., ceramir.online)"
+      - "      - Max mailboxes: set as needed"
+      - "      - Max quota: set as needed"
+      - "   4. Create mailboxes: Configuration → Mail → Mailboxes → Add mailbox"
+      - "      - Username: user@{{ portal_domain }}"
+      - "      - Full name: User Name"
+      - "      - Password: set secure password"
+      - "   5. Set up DNS records for your domain:"
+      - "      - MX record: {{ portal_domain }} → mail.{{ portal_domain }}"
+      - "      - DKIM, SPF, DMARC records (check MailCow admin for values)"
+      - ""
+      - "📖 Documentation: https://docs.mailcow.email/"
   tags:
     - mailcow
-    - admin_password
-  when: mailcow__update_admin_password | default(false)
+    - info
 
 - name: Update mailcow
   include_tasks: update.yml
   when:
     - mailcow_running.exists
     - mailcow__install_updates
+
+- name: Update ACME redirect default server (support both Certbot and MailCow)
+  become: true
+  ansible.builtin.template:
+    src: 00-acme-redirect.conf.j2
+    dest: /etc/nginx/sites-available/00-acme-redirect
+    mode: '0644'
+    owner: root
+    group: root
+  notify: reload nginx
+  tags: [mailcow, nginx]
+
+- name: Ensure ACME redirect default server is enabled
+  become: true
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/00-acme-redirect
+    dest: /etc/nginx/sites-enabled/00-acme-redirect
+    state: link
+  notify: reload nginx
+  tags: [mailcow, nginx]
+
+- name: Create MailCow Nginx configuration (main domain)
+  become: true
+  ansible.builtin.template:
+    src: mailcow-nginx.conf.j2
+    dest: /etc/nginx/sites-available/mailcow-basic
+    mode: '0644'
+    owner: root
+    group: root
+  notify: reload nginx
+  tags: [mailcow, nginx]
+
+- name: Enable MailCow Nginx configuration (main domain)
+  become: true
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/mailcow-basic
+    dest: /etc/nginx/sites-enabled/mailcow-basic
+    state: link
+  notify: reload nginx
+  tags: [mailcow, nginx]
+
+- name: Test Nginx configuration after MailCow setup
+  become: true
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  tags: [mailcow, nginx]
