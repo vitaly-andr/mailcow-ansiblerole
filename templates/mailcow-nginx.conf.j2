@@ -54,3 +54,97 @@ server {
     }
 }
 
+# ========================================
+# Autoconfig for Android/Thunderbird clients
+# ========================================
+server {
+    listen 80;
+    server_name autoconfig.{{ portal_domain }};
+
+    # Proxy autoconfig requests directly to MailCow HTTPS (to avoid HTTP→HTTPS redirect)
+    # Android/Thunderbird clients don't follow redirects for autoconfig
+    # (ACME challenges handled by 00-acme-redirect default server)
+    location / {
+        proxy_pass https://127.0.0.1:{{ mailcow__config_https_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;  # Tell MailCow this was HTTP request
+        proxy_ssl_verify off;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name autoconfig.{{ portal_domain }};
+
+    # SSL configuration - use MailCow certificates
+    ssl_certificate {{ mailcow__install_path }}/data/assets/ssl/cert.pem;
+    ssl_certificate_key {{ mailcow__install_path }}/data/assets/ssl/key.pem;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozTLS:10m;
+    ssl_session_tickets off;
+
+    # Modern configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    # Proxy to MailCow
+    location / {
+        proxy_pass https://127.0.0.1:{{ mailcow__config_https_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_verify off;
+    }
+}
+
+# ========================================
+# Autodiscover for Apple/Outlook clients
+# ========================================
+server {
+    listen 80;
+    server_name autodiscover.{{ portal_domain }};
+
+    # Redirect HTTP to HTTPS for autodiscover
+    # (ACME challenges handled by 00-acme-redirect default server)
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name autodiscover.{{ portal_domain }};
+
+    # SSL configuration - use MailCow certificates
+    ssl_certificate {{ mailcow__install_path }}/data/assets/ssl/cert.pem;
+    ssl_certificate_key {{ mailcow__install_path }}/data/assets/ssl/key.pem;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozTLS:10m;
+    ssl_session_tickets off;
+
+    # Modern configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    # Proxy to MailCow
+    location / {
+        proxy_pass https://127.0.0.1:{{ mailcow__config_https_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_verify off;
+    }
+}
+
